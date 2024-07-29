@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>短信转发器web客户端</title>
+    <style>
+        /* 全局样式 */
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+
+        /* 容器样式 */
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 500px;
+        }
+
+        /* 标题样式 */
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 24px;
+            color: #333;
+        }
+
+        /* 表单样式 */
+        form {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 标签样式 */
+        label {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        /* 输入框、文本区、选择框和按钮样式 */
+        input,
+        textarea,
+        select,
+        button {
+            margin-top: 5px;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        textarea {
+            resize: vertical;
+        }
+
+        button {
+            margin-top: 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            font-size: 18px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        /* 单选框组样式 */
+        .radio-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+        }
+
+        .radio-group label {
+            flex: 1;
+            text-align: center;
+            margin: 0;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .radio-group input[type="radio"] {
+            display: none;
+        }
+
+        .radio-group input[type="radio"]:checked+label {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #4CAF50;
+        }
+
+        /* 响应结果样式 */
+        pre {
+            margin-top: 20px;
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 14px;
+        }
+
+        /* 媒体查询 */
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+                width: 90%;
+            }
+
+            .radio-group label {
+                padding: 8px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>短信转发器web客户端</h1>
+        <form id="apiForm">
+            <label for="url">服务地址:</label>
+            <input type="text" id="url" name="url" value="http://192.168.1.2:5000" required>
+
+            <label for="key">签名密钥:</label>
+            <input type="password" id="key" name="key" required>
+
+            <label for="endpoint">功能列表:</label>
+            <select id="endpoint" name="endpoint" onchange="updateFormFields()" required>
+                <option value="/config/query">远程查配置</option>
+                <option value="/clone/pull">客户端从服务端拉取配置</option>
+                <option value="/clone/push">客户端向服务端推送配置</option>
+                <option value="/sms/send">远程发短信</option>
+                <option value="/sms/query">远程查短信</option>
+                <option value="/call/query">远程查通话</option>
+                <option value="/battery/query">远程查电量</option>
+                <option value="/wol/send">远程WOL</option>
+                <option value="/location/query">远程查定位</option>
+                <option value="/contact/add">远程加话簿</option>
+                <option value="/contact/query">远程查话簿</option>
+            </select>
+
+            <div id="dynamicFields"></div>
+
+            <button type="button" id="sendButton" onclick="sendRequest()">发送请求</button>
+        </form>
+        <pre id="response"></pre>
+    </div>
+
+    <script>
+        // 根据选择的功能列表更新表单字段
+        function updateFormFields() {
+            const dynamicFields = document.getElementById('dynamicFields');
+            const endpoint = document.getElementById('endpoint').value;
+            dynamicFields.innerHTML = '';
+
+            const fields = getFieldsForEndpoint(endpoint);
+            fields.forEach(field => createField(dynamicFields, field));
+        }
+
+        // 获取每个功能的表单字段
+        function getFieldsForEndpoint(endpoint) {
+            const endpointFields = {
+                '/clone/pull': [{ name: 'version_code', type: 'number', label: '客户端App版本号', required: true, defaultValue: '' }],
+                '/clone/push': [{ name: 'config_data', type: 'textarea', label: '配置数据(JSON 格式)', required: true, defaultValue: '{}' }],
+                '/sms/send': [
+                    { name: 'sim_slot', type: 'radio', options: [{ value: '1', label: 'SIM卡1' }, { value: '2', label: 'SIM卡2' }], required: true, defaultValue: '1' },
+                    { name: 'phone_numbers', type: 'text', label: '接收手机号码，多个手机号用半角分号分隔', required: true, defaultValue: '' },
+                    { name: 'msg_content', type: 'textarea', label: '短信内容', required: true, defaultValue: '' }
+                ],
+                '/sms/query': [
+                    { name: 'type', type: 'radio', options: [{ value: '1', label: '接收' }, { value: '2', label: '发送' }], required: true, defaultValue: '1' },
+                    { name: 'page_num', type: 'number', label: '页码', required: true, defaultValue: '1' },
+                    { name: 'page_size', type: 'number', label: '分页大小', required: true, defaultValue: '10' },
+                    { name: 'keyword', type: 'text', label: '关键字，模糊匹配短信内容', required: false, defaultValue: '' }
+                ],
+                '/call/query': [
+                    { name: 'type', type: 'radio', options: [{ value: '1', label: '呼入' }, { value: '2', label: '呼出' }, { value: '3', label: '未接' }], required: false, defaultValue: '3' },
+                    { name: 'page_num', type: 'number', label: '页码', required: true, defaultValue: '1' },
+                    { name: 'page_size', type: 'number', label: '分页大小', required: true, defaultValue: '10' },
+                    { name: 'phone_number', type: 'text', label: '手机号码，模糊匹配', required: false, defaultValue: '' }
+                ],
+                '/wol/send': [{ name: 'mac', type: 'text', label: '网卡MAC,例如: 24:5E:BE:0C:45:9A', required: true }],
+                '/contact/add': [
+                    { name: 'phone_number', type: 'text', label: '多个手机号用半角分号分隔', required: true },
+                    { name: 'name', type: 'text', label: '通讯录显示名称', required: false }
+                ]
+            };
+            return endpointFields[endpoint] || [];
+        }
+
+        // 创建表单字段
+        function createField(container, field) {
+            if (field.type === 'radio') {
+                const radioGroup = document.createElement('div');
+                radioGroup.className = 'radio-group';
+                field.options.forEach(option => {
+                    const fieldInput = document.createElement('input');
+                    fieldInput.type = 'radio';
+                    fieldInput.id = field.name + '_' + option.value;
+                    fieldInput.name = field.name;
+                    fieldInput.value = option.value;
+                    fieldInput.checked = option.value === field.defaultValue;
+
+                    const radioLabel = document.createElement('label');
+                    radioLabel.htmlFor = fieldInput.id;
+                    radioLabel.innerText = option.label;
+                    radioGroup.appendChild(fieldInput);
+                    radioGroup.appendChild(radioLabel);
+                });
+                container.appendChild(radioGroup);
+            } else {
+                const fieldLabel = document.createElement('label');
+                fieldLabel.htmlFor = field.name;
+                fieldLabel.innerText = field.label;
+                container.appendChild(fieldLabel);
+
+                const fieldInput = field.type === 'textarea' ? document.createElement('textarea') : document.createElement('input');
+                fieldInput.type = field.type === 'textarea' ? 'text' : field.type;
+                fieldInput.id = field.name;
+                fieldInput.name = field.name;
+                fieldInput.required = field.required;
+                fieldInput.value = field.defaultValue || '';
+                container.appendChild(fieldInput);
+            }
+        }
+
+        // 发送请求
+        async function sendRequest() {
+            const form = document.getElementById('apiForm');
+            const sendButton = document.getElementById('sendButton');
+
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+
+            const url = document.getElementById('url').value;
+            const key = document.getElementById('key').value;
+            const endpoint = document.getElementById('endpoint').value;
+            const timestamp = Date.now();
+
+            let data = {};
+            if (endpoint === '/clone/push') {
+                const configData = document.getElementById('config_data').value;
+                try {
+                    data = JSON.parse(configData);
+                } catch (error) {
+                    document.getElementById('response').innerText = 'Error: 配置数据不是有效的JSON格式';
+                    return;
+                }
+            } else {
+                const dynamicFields = document.getElementById('dynamicFields').querySelectorAll('input, textarea');
+                dynamicFields.forEach(field => {
+                    if (field.type === 'radio' && !field.checked) return;
+                    data[field.name] = field.value;
+                });
+            }
+
+            sendButton.disabled = true;
+            sendButton.innerText = '请求发送中...';
+
+            try {
+                const sign = await generateSign(timestamp, key);
+                const requestBody = { data, timestamp, sign };
+                const response = await fetch(url + endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const responseData = await response.json();
+                if (responseData.code === 200) {
+                    const formattedData = formatResponseData(responseData.data, endpoint);
+                    document.getElementById('response').innerHTML = formattedData;
+                } else {
+                    document.getElementById('response').innerText = responseData.msg;
+                }
+            } catch (error) {
+                document.getElementById('response').innerText = 'Error: ' + error.message;
+            } finally {
+                sendButton.disabled = false;
+                sendButton.innerText = '发送请求';
+            }
+        }
+
+        // 格式化响应数据
+        function formatResponseData(data, endpoint) {
+            if (endpoint === '/sms/query') {
+                return data.map(item => {
+                    const date = new Date(item.date).toLocaleString();
+                    return `${item.content}\n${item.name} ${item.number}\n${item.sim_id} ${date} <a href="#" onclick="replySMS('${item.number}')">[回复]</a>\n`;
+                }).join('\n');
+            }
+
+            if (endpoint === '/call/query') {
+                return data.map(item => {
+                    const date = new Date(item.dateLong).toLocaleString();
+                    const duration = `${Math.floor(item.duration / 60)}分${item.duration % 60}秒`;
+                    return `${item.name} ${item.number}\n${duration} ${item.sim_id} ${date}\n`;
+                }).join('\n');
+            }
+
+            return JSON.stringify(data, null, 2);
+        }
+
+        // 回复短信
+        function replySMS(number) {
+            document.getElementById('endpoint').value = '/sms/send';
+            updateFormFields();
+            document.getElementById('phone_numbers').value = number;
+        }
+
+        // 生成签名
+        async function generateSign(timestamp, key) {
+            const message = `${timestamp}\n${key}`;
+            const enc = new TextEncoder();
+            const keyData = enc.encode(key);
+            const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+            const signature = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(message));
+            return encodeURIComponent(btoa(String.fromCharCode(...new Uint8Array(signature))));
+        }
+
+        // 文档加载完后更新表单字段
+        document.addEventListener('DOMContentLoaded', updateFormFields);
+    </script>
+</body>
+
+</html>
